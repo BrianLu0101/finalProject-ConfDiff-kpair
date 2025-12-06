@@ -252,3 +252,45 @@ class gen_index_dataset(Dataset):
         each_true_label1 = self.true_label1[index]
         each_true_label2 = self.true_label2[index]
         return each_data1, each_data2, each_confidence, each_true_label1, each_true_label2
+    
+def generate_k_pairings(N, k):
+    pairings = []
+    half = N // 2
+
+    for _ in range(k):
+        perm = torch.randperm(N)
+        data1 = perm[:half]
+        data2 = perm[half:]
+        pairings.append((data1,data2))
+
+    return pairings
+
+class PairDataset(torch.utils.data.Dataset):
+    def __init__(self, X, pairings):
+        self.X = X
+        self.pairs = []
+
+        for d1, d2 in pairings:
+            for i, j in zip(d1.tolist(), d2.tolist()):
+                self.pairs.append((i, j))
+
+    def __len__(self):
+        return len(self.pairs)
+    
+    def __getitem__(self, idx):
+        i, j = self.pairs[idx]
+        return self.X[i], self.X[j]
+    
+class ConfDiffTrainDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y, pairs, confs):
+        self.X = X
+        self.y = y
+        self.pairs = pairs
+        self.confs = confs
+
+    def __len__(self):
+        return len(self.pairs)
+    
+    def __getitem__(self, idx):
+        i, j = self.pairs[idx]
+        return self.X[i], self.X[j], self.confs[idx], self.y[i], self.y[j]
