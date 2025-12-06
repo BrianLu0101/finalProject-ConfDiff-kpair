@@ -9,6 +9,8 @@ from utils.utils_loss import logistic_loss
 from utils.utils_algo import get_model, accuracy_check, train_data_confidence_gen
 from cifar_models import resnet
 from algorithms import pretrainLR, ConfDiffUnbiased, ConfDiffReLU, ConfDiffABS
+from utils.utils_data import generate_k_pairings, PairDataset, ConfDiffTrainDataset #added
+from utils.utils_algo import compute_confidence_diffs #added
 
 
 parser = argparse.ArgumentParser()
@@ -23,6 +25,7 @@ parser.add_argument('-pretrain_ep', help='number of pretrain epochs', type=int, 
 parser.add_argument('-ep', help='number of ConfDiff epochs', type=int, default=200)
 parser.add_argument('-n', help = 'number of unlabeled data pairs', default=15000, type=int, required=False)
 parser.add_argument('-prior', help='the class prior of the data set', type=float, default=0.5)
+parser.add_argument('-k_pairs', help='number of random pairings for ConfDiff', default=1, type=int) #custom
 parser.add_argument('-wd', help='weight decay', default=1e-5, type=float)
 parser.add_argument('-lo', help='specify a loss function', default='logistic', type=str, choices=['logistic'], required=False)
 parser.add_argument('-uci', help = 'Is UCI datasets?', default=0, type=int, choices=[0,1], required=False)
@@ -30,8 +33,10 @@ parser.add_argument('-gpu', help = 'used gpu id', default='0', type=str, require
 parser.add_argument('-seed', help = 'Random seed', default=1, type=int, required=False)
 parser.add_argument('-run_times', help='random run times', default=5, type=int, required=False)
 
+
 args = parser.parse_args()
 device = torch.device("cuda:"+args.gpu if torch.cuda.is_available() else "cpu")
+print("Using device: ", device)
 
 if args.lo == 'logistic':
     loss_fn = logistic_loss
@@ -48,9 +53,9 @@ if not os.path.exists(save_total_dir):
 if not os.path.exists(save_detail_dir):
     os.makedirs(save_detail_dir)
 
-save_pretrain_name = "Res_pretrain_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.pretrain_bs, args.pretrain_ep, args.seed, args.n)
-save_total_name = "Res_total_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_bs_{}_ep_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.bs, args.ep, args.pretrain_bs, args.pretrain_ep, args.seed, args.n)
-save_detail_name = "Res_detail_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_bs_{}_ep_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.bs, args.ep, args.pretrain_bs, args.pretrain_ep, args.seed, args.n)
+save_pretrain_name = "Res_pretrain_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}_k_pairs_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.pretrain_bs, args.pretrain_ep, args.seed, args.n, args.k_pairs)
+save_total_name = "Res_total_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_bs_{}_ep_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}_k_pairs_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.bs, args.ep, args.pretrain_bs, args.pretrain_ep, args.seed, args.n, args.k_pairs)
+save_detail_name = "Res_detail_ds_{}_prior_{}_me_{}_mo_{}_lr_{}_wd_{}_bs_{}_ep_{}_pretrain_bs_{}_pretrain_ep_{}_seed_{}_n_{}_k_pairs_{}.csv".format(args.ds, args.prior, args.me, args.mo, args.lr, args.wd, args.bs, args.ep, args.pretrain_bs, args.pretrain_ep, args.seed, args.n, args.k_pairs)
 
 save_pretrain_path = os.path.join(save_pretrain_dir, save_pretrain_name)
 save_total_path = os.path.join(save_total_dir, save_total_name)
@@ -89,9 +94,25 @@ for run_idx in range(args.run_times):
 
     avg_pretrain_test_acc, pretrain_model = pretrainLR(pretrain_model, pretrain_loader, pretrain_test_loader, pretrain_eval_loader, args, loss_fn, device, if_write=if_write, save_path=save_pretrain_path)
     print("Average test accuracy for pretrain: ", avg_pretrain_test_acc)
-
     train_data1, train_data2, train_label1, train_label2, data1_loader, data2_loader, test_loader = train_test_data_gen(positive_pretrain_data, negative_pretrain_data, positive_pretrain_test_data, negative_pretrain_test_data, args.n, args.prior, args.pretrain_bs)
 
+    k = args.k_pairs
+    all_train_data = torch.cat((train_data1, train_data2), dim = 0)
+    all_labels = torch.cat((train_label1, train_label2), dim=0)
+    N = all_train_data.shape[0]
+    pairings = generate_k_pairings(N, k)
+    pair_dataset = PairDataset(all_train_data, pairings)
+    confs = compute_confidence_diffs(pretrain_model, device, pair_dataset)
+
+    pairs = []
+    for d1,d2 in pairings:
+        for i, j in zip(d1.tolist(), d2.tolist()):
+            pairs.append((i,j))
+
+    confdiff_dataset = ConfDiffTrainDataset(all_train_data, all_labels, pairs, confs)
+    confdiff_train_loader = torch.utils.data.DataLoader(confdiff_dataset, batch_size=args.bs, shuffle=True)
+
+    '''
     data1_confidence = torch.zeros(train_data1.shape[0])
     data1_confidence = data1_confidence.to(device)
     data1_confidence, start_idx1 = train_data_confidence_gen(data1_loader, pretrain_model, device, data1_confidence)
@@ -103,9 +124,9 @@ for run_idx in range(args.run_times):
  
 
     pcomp_confidence = (data2_confidence - data1_confidence).cpu()
-    #print(pcomp_confidence[:10])
+    print(pcomp_confidence[:10])
     confdiff_train_loader = gen_confdiff_train_loader(train_data1, train_data2, pcomp_confidence, train_label1, train_label2, args.bs)
-
+    '''
     model = get_model(args.ds, args.mo, dim, device)
     if args.me == 'ConfDiffUnbiased':
         res_acc = ConfDiffUnbiased(model, confdiff_train_loader, test_loader, args, loss_fn, device, if_write=if_write, save_path=save_detail_path)
@@ -130,4 +151,5 @@ print('method:{}    lr:{}    wd:{}'.format(args.me, args.lr, args.wd))
 print('loss:{}    prior:{}'.format(args.lo, args.prior))
 print('model:{}    dataset:{}'.format(args.mo, args.ds))
 print('num of sample:{}'.format(args.n))
+print(f"Using k_pairs={k}, total training pairs = {len(pairs)}")
 print('\n')

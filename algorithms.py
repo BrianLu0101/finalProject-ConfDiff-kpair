@@ -36,7 +36,8 @@ def pretrainLR(model, given_train_loader, test_loader, train_eval_loader, args, 
                 f.writelines("{},{:.6f},{:.6f},{:.6f}\n".format(epoch + 1, train_loss.data.item(), train_eval_acc, test_acc))
         if epoch >= (args.pretrain_ep-10):
             test_acc_list.extend([test_acc])
-    return np.mean(test_acc_list), model
+
+    return np.mean(test_acc_list), model #temp_model
 
 def ConfDiffUnbiased(model, given_train_loader, test_loader, args, loss_fn, device, if_write=False, save_path=""):
     test_acc = accuracy_check(loader=test_loader, model=model, device=device)

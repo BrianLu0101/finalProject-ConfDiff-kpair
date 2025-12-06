@@ -39,7 +39,22 @@ def train_data_confidence_gen(loader, model, device, all_data_confidence):
             labels, images = labels.to(device), images.to(device)
             batch_size = images.shape[0]
             outputs = model(images)[:,0]
-            confidence = torch.sigmoid(outputs).squeeze()
+            confidence = torch.sigmoid(outputs / 1.0).squeeze() #confidence = torch.sigmoid(outputs).squeeze()
             all_data_confidence[start_idx:(start_idx+batch_size)] = confidence
             start_idx += batch_size
     return all_data_confidence, start_idx
+
+def compute_confidence_diffs(model, device, pair_dataset):
+    loader = torch.utils.data.DataLoader(pair_dataset, batch_size=256, shuffle=False)
+    model.eval()
+    confs = []
+
+    with torch.no_grad():
+        for x1, x2 in loader:
+            x1, x2 = x1.to(device), x2.to(device)
+            p1 = torch.sigmoid(model(x1)[:,0])
+            p2 = torch.sigmoid(model(x2)[:,0])
+            confs.append((p2-p1).cpu())
+
+    return torch.cat(confs, dim=0)
+
