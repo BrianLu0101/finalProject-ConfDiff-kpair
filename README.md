@@ -28,3 +28,6 @@ scipy 1.5.4
 
 ## Demo:
 python main.py -mo mlp -ds mnist -uci 0 -lr 1e-3 -wd 1e-5 -gpu 0 -ep 200 -seed 0 -bs 256 -pretrain_bs 256 -pretrain_ep 10 -me ConfDiffABS -prior 0.5 -n 15000 -run_times 5 -k_pairs 10
+
+# Contributions:
+BrianLu0101, Sathwik-N-B: Both worked on implementing a method for multiple random pairings which is utilized a k_pairs in the command line argument. Both also worked on the project report.
